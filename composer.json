@@ -1,0 +1,17 @@
+{
+  "name": "bentools/guzzle-queued",
+  "license": "MIT",
+  "type": "library",
+  "description": "Queues asynchronous requests, handled by workers.",
+  "autoload": {
+    "psr-4": {
+      "BenTools\\GuzzleQueued\\": "src/BenTools/GuzzleQueued"
+    }
+  },
+  "require": {
+    "psr/cache": "1.0.*",
+    "guzzlehttp/guzzle": "~6.0",
+    "bentools/psr6-redis-adapter": "~1.0",
+    "pda/pheanstalk": "^3.1"
+  }
+}
