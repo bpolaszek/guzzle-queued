@@ -12,5 +12,8 @@
     "psr/cache": "1.0.*",
     "guzzlehttp/guzzle": "~6.0",
     "pda/pheanstalk": "^3.1"
+  },
+  "require-dev": {
+    "symfony/event-dispatcher": "~2.3|~3.0"
   }
 }

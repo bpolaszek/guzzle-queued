@@ -7,13 +7,18 @@ use Symfony\Component\EventDispatcher\Event;
 
 class JobEvent extends Event {
 
-    const BEFORE_PROCESS = 'queue.job.before.process';
-    const AFTER_PROCESS  = 'queue.job.after.process';
+    const BEFORE_PROCESS = 'guzzlequeued.job.before.process';
+    const AFTER_PROCESS  = 'guzzlequeued.job.after.process';
 
     /**
      * @var Job
      */
     protected $job;
+
+    /**
+     * @var array
+     */
+    protected $data;
 
     /**
      * @var bool
@@ -37,10 +42,12 @@ class JobEvent extends Event {
 
     /**
      * JobEvent constructor.
-     * @param Job $job
+     * @param Job    $job
+     * @param string $data
      */
-    public function __construct(Job $job) {
-        $this->job = $job;
+    public function __construct(Job $job, $data = []) {
+        $this->job  = $job;
+        $this->data = $data;
     }
 
     /**
@@ -120,6 +127,22 @@ class JobEvent extends Event {
      */
     public function shouldNotProcess() {
         return $this->shouldDelay() || $this->shouldDelete() || $this->shouldIgnore();
+    }
+
+    /**
+     * @return array
+     */
+    public function getData() {
+        return $this->data;
+    }
+
+    /**
+     * @param array $data
+     * @return $this - Provides Fluent Interface
+     */
+    public function setData($data) {
+        $this->data = $data;
+        return $this;
     }
 
 }

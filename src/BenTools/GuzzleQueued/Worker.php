@@ -6,7 +6,6 @@ use GuzzleHttp\ClientInterface;
 use Pheanstalk\Job;
 use Pheanstalk\Pheanstalk;
 use Pheanstalk\PheanstalkInterface;
-use Psr\Cache\CacheItemPoolInterface;
 use Psr\Http\Message\RequestInterface;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
@@ -17,11 +16,6 @@ class Worker {
      * @var ClientInterface
      */
     private $client;
-
-    /**
-     * @var CacheItemPoolInterface
-     */
-    private $cachePool;
 
     /**
      * @var Pheanstalk
@@ -35,16 +29,15 @@ class Worker {
 
     /**
      * Worker constructor.
-     * @param ClientInterface          $client
-     * @param CacheItemPoolInterface   $cachePool
-     * @param Pheanstalk               $queue
-     * @param EventDispatcherInterface $eventDispatcher
+     * @param ClientInterface               $client
+     * @param Pheanstalk                    $queue
+     * @param EventDispatcherInterface|null $eventDispatcher
      */
-    public function __construct(ClientInterface $client, CacheItemPoolInterface $cachePool, Pheanstalk $queue, EventDispatcherInterface $eventDispatcher = null) {
+    public function __construct(ClientInterface $client, Pheanstalk $queue, EventDispatcherInterface $eventDispatcher = null) {
         $this->client          = $client;
-        $this->cachePool       = $cachePool;
         $this->queue           = $queue;
         $this->eventDispatcher = $eventDispatcher ?? new EventDispatcher();
+        $this->queue->watchOnly(Client::TUBE_REQUESTS);
     }
 
     public function loop() {
@@ -58,7 +51,9 @@ class Worker {
      */
     public function process($job) {
 
-        $event = $this->eventDispatcher->dispatch(JobEvent::BEFORE_PROCESS, new JobEvent($job));
+        $payload    = $job->getData();
+        $requestBag = Client::unwrapRequestBag($payload);
+        $event      = $this->dispatch(JobEvent::BEFORE_PROCESS, new JobEvent($job, $requestBag));
 
         if ($event->shouldNotProcess()) {
             switch (true) {
@@ -75,31 +70,41 @@ class Worker {
             return;
         }
 
-        $requestBag = Client::unwrapRequestBag($job->getData());
-
         try {
+
             /** @var RequestInterface $request */
             $request = $requestBag['request'];
+
+            try {
+                $requestBag['response'] = $this->client->send($request, $requestBag['options']);
+            }
+            catch (\GuzzleHttp\Exception\RequestException $e) {
+                $requestBag['response']  = $e->getResponse() ? $e->getResponse() : null;
+                $requestBag['exception'] = $e;
+            }
+            catch (\Exception $e) {
+                $requestBag['response']  = null;
+                $requestBag['exception'] = $e;
+            }
         }
         catch (\InvalidArgumentException $e) {
-            $requestBag['response'] = null;
+            $requestBag['response']  = null;
+            $requestBag['exception'] = $e;
         }
 
-        try {
-            $requestBag['response'] = $this->client->send($request, $requestBag['options']);
-        }
-        catch (\GuzzleHttp\Exception\RequestException $e) {
-            $requestBag['response'] = $e->getResponse() ? $e->getResponse() : null;
-        }
-        catch (\Exception $e) {
-            $requestBag['response'] = null;
-        }
-        $cacheItem = $this->cachePool->getItem($requestBag['requestId']);
-        $cacheItem->set(Client::wrapRequestBag($requestBag));
-        $this->cachePool->save($cacheItem);
+        $this->queue->putInTube(Client::TUBE_RESPONSES, Client::wrapRequestBag($requestBag));
         $this->queue->delete($job);
 
-        $this->eventDispatcher->dispatch(JobEvent::AFTER_PROCESS, new JobEvent($job));
+        $this->eventDispatcher->dispatch(JobEvent::AFTER_PROCESS, new JobEvent($job, $requestBag));
+    }
+
+    /**
+     * @param          $eventName
+     * @param JobEvent $event
+     * @return JobEvent
+     */
+    public function dispatch($eventName, JobEvent $event) {
+        return $this->eventDispatcher->dispatch($eventName, $event);
     }
 
     /**
