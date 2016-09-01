@@ -8,6 +8,7 @@ use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Promise\Promise;
 use GuzzleHttp\Promise\PromiseInterface;
+use Pheanstalk\Job;
 use Pheanstalk\Pheanstalk;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -79,7 +80,7 @@ class Client implements ClientInterface {
             'response'  => null,
         ];
         $serializedBag = static::wrapRequestBag($requestBag);
-        $this->queue->putInTube(self::TUBE_REQUESTS, $serializedBag, Pheanstalk::DEFAULT_PRIORITY, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
+        $this->queue->putInTube(self::TUBE_REQUESTS, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
 
         $promise = new Promise(function () use ($requestId, &$promise) {
 
@@ -111,12 +112,18 @@ class Client implements ClientInterface {
 
                 }
                 else {
-                    $this->queue->release($job, Pheanstalk::DEFAULT_PRIORITY, 1);
+                    $this->lowerPriority($job);
                 }
             }
 
         });
         return $promise;
+    }
+
+    protected function lowerPriority(Job $job) {
+        $priority = $this->queue->statsJob($job)['pri'];
+        $priority += mt_rand(1, 3);
+        $this->queue->release($job, $priority, array_merge(array_fill(0, 20, 0), array_fill(0, 5, 1))[mt_rand(0, 24)]);
     }
 
     /**
