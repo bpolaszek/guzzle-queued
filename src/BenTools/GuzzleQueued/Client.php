@@ -48,12 +48,17 @@ class Client implements ClientInterface {
     private $ttr;
 
     /**
-     * Client constructor.
-     * @param Guzzle     $decoratedClient
-     * @param Pheanstalk $queue
-     * @param int        $ttr
+     * @var PromiseInterface[]
      */
-    public function __construct(Guzzle $decoratedClient, Pheanstalk $queue, $ttr = Pheanstalk::DEFAULT_TTR) {
+    private $promises = [];
+
+    /**
+     * Client constructor.
+     * @param ClientInterface $decoratedClient
+     * @param Pheanstalk      $queue
+     * @param int             $ttr
+     */
+    public function __construct(ClientInterface $decoratedClient, Pheanstalk $queue, $ttr = Pheanstalk::DEFAULT_TTR) {
         $this->decoratedClient = $decoratedClient;
         $this->queue           = $queue;
         $this->ttr             = $ttr;
@@ -81,49 +86,68 @@ class Client implements ClientInterface {
         ];
         $serializedBag = static::wrapRequestBag($requestBag);
         $this->queue->putInTube(self::TUBE_REQUESTS, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
-
-        $promise = new Promise(function () use ($requestId, &$promise) {
-
-            /** @var PromiseInterface $promise */
-
-            while ($job = $this->queue->reserve()) {
-
-                $payload = $job->getData();
-
-                if ($requestId === substr($payload, 14, 13)) {
-
-                    $requestBag = static::unwrapRequestBag($payload);
-                    $this->queue->delete($job);
-
-                    switch (true) {
-
-                        case !empty($requestBag['response']) && $requestBag['response']->getStatusCode() < 400:
-                            $promise->resolve($requestBag['response']);
-                            break 2;
-
-                        case !empty($requestBag['response']):
-                            $promise->reject(RequestException::create($requestBag['request'], $requestBag['response']));
-                            break 2;
-
-                        default:
-                            $promise->reject(new ConnectException('Unable to process request', $requestBag['request']));
-                            break 2;
-                    }
-
-                }
-                else {
-                    $this->lowerPriority($job);
-                }
-            }
-
+        $this->promises[$requestId] = $promise = new Promise(function () use ($requestId, &$promise) {
+            $this->wait();
         });
         return $promise;
     }
 
-    protected function lowerPriority(Job $job) {
-        $priority = $this->queue->statsJob($job)['pri'];
-        $priority += mt_rand(1, 3);
-        $this->queue->release($job, $priority, array_merge(array_fill(0, 20, 0), array_fill(0, 5, 1))[mt_rand(0, 24)]);
+    /**
+     * Wait for all pending promises to complete.
+     */
+    private function wait() {
+
+        foreach ($this->promises AS $requestId => $promise) {
+
+            if ($promise->getState() !== PromiseInterface::PENDING)
+                continue;
+
+            $job = $this->queue->reserveFromTube(sprintf('%s.%s', self::TUBE_RESPONSES, $requestId), 1);
+
+            if ($job instanceof Job) {
+                $this->processPromise($promise, $job);
+            }
+        }
+
+        if ($this->hasPendingPromises()) {
+            $this->wait();
+        }
+
+    }
+
+    /**
+     * Check if some pending promises remain in the queue.
+     * @return bool
+     */
+    private function hasPendingPromises() {
+        return count(array_filter($this->promises, function (PromiseInterface $promise) {
+            return $promise->getState() === PromiseInterface::PENDING;
+        })) > 0;
+    }
+
+    /**
+     * Process promise with the Beanstalk Job.
+     * @param PromiseInterface $promise
+     * @param Job              $job
+     */
+    private function processPromise(PromiseInterface $promise, Job $job) {
+        $payload = $job->getData();
+        $requestBag = static::unwrapRequestBag($payload);
+        $this->queue->delete($job);
+
+        switch (true) {
+            case !empty($requestBag['response']) && $requestBag['response']->getStatusCode() < 400:
+                $promise->resolve($requestBag['response']);
+                break;
+
+            case !empty($requestBag['response']):
+                $promise->reject(RequestException::create($requestBag['request'], $requestBag['response']));
+                break;
+
+            default:
+                $promise->reject(new ConnectException('Unable to process request', $requestBag['request']));
+                break;
+        }
     }
 
     /**

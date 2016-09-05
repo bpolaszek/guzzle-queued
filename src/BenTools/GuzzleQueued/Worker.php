@@ -92,8 +92,10 @@ class Worker {
             $requestBag['exception'] = $e;
         }
 
-        $this->queue->putInTube(Client::TUBE_RESPONSES, Client::wrapRequestBag($requestBag));
+        $tube = sprintf('%s.%s', Client::TUBE_RESPONSES, $requestBag['requestId']);
+        $this->queue->putInTube($tube, Client::wrapRequestBag($requestBag));
         $this->queue->delete($job);
+        $this->queue->useTube(Client::TUBE_RESPONSES);
 
         $this->eventDispatcher->dispatch(JobEvent::AFTER_PROCESS, new JobEvent($job, $requestBag));
     }
