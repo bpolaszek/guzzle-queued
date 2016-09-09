@@ -93,9 +93,19 @@ class Worker {
         }
 
         $tube = sprintf('%s.%s', Client::TUBE_RESPONSES, $requestBag['requestId']);
-        $this->queue->putInTube($tube, Client::wrapRequestBag($requestBag));
-        $this->queue->delete($job);
-        $this->queue->useTube(Client::TUBE_RESPONSES);
+        try {
+            $this->queue->putInTube($tube, Client::wrapRequestBag($requestBag));
+            $this->queue->delete($job);
+            $this->queue->useTube(Client::TUBE_RESPONSES);
+        }
+        catch (\Exception $e) {
+            $event = new JobEvent($job, $requestBag);
+            $event->setException($e);
+            $event = $this->eventDispatcher->dispatch(JobEvent::AFTER_PROCESS, $event);
+            if ($event->hasException()) {
+                throw $event->getException();
+            }
+        }
 
         $this->eventDispatcher->dispatch(JobEvent::AFTER_PROCESS, new JobEvent($job, $requestBag));
     }

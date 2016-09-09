@@ -9,6 +9,7 @@ class JobEvent extends Event {
 
     const BEFORE_PROCESS = 'guzzlequeued.job.before.process';
     const AFTER_PROCESS  = 'guzzlequeued.job.after.process';
+    const ERROR          = 'guzzlequeued.job.error';
 
     /**
      * @var Job
@@ -39,6 +40,11 @@ class JobEvent extends Event {
      * @var
      */
     protected $delay;
+
+    /**
+     * @var \Exception
+     */
+    protected $exception;
 
     /**
      * JobEvent constructor.
@@ -145,4 +151,26 @@ class JobEvent extends Event {
         return $this;
     }
 
+    /**
+     * @return \Exception
+     */
+    public function getException() {
+        return $this->exception;
+    }
+
+    /**
+     * @param \Exception $exception
+     * @return $this - Provides Fluent Interface
+     */
+    public function setException($exception) {
+        $this->exception = $exception;
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasException() {
+        return !is_null($this->exception);
+    }
 }
