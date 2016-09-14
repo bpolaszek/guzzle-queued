@@ -18,5 +18,8 @@
     "bin": [
       "bin/guzzle-request-worker"
     ]
-  }
+  },
+  "bin": [
+    "bin/guzzle-request-worker"
+  ]
 }
