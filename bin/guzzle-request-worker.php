@@ -1,4 +1,3 @@
-#!/usr/bin/env
 <?php
 
 require __DIR__ . '/../autoload.php';
