@@ -1,12 +1,27 @@
 <?php
 
-require __DIR__ . '/../autoload.php';
-
 use Pheanstalk\PheanstalkInterface;
 use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Input\InputDefinition;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\EventDispatcher\EventDispatcher;
+
+$tryAutoloaders = [
+    __DIR__ . '/../autoload.php',
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../autoload.php',
+    __DIR__ . '/../../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+    __DIR__ . '/../../../vendor/autoload.php',
+];
+
+foreach ($tryAutoloaders AS $autoloader) {
+    if (file_exists($autoloader)) {
+        require $autoloader;
+        break;
+    }
+}
+
 
 $input = new ArgvInput(null, new InputDefinition([
     new InputOption('host', 'bh', InputOption::VALUE_OPTIONAL, 'Beanstalk host', '127.0.0.1'),
