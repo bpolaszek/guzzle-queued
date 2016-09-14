@@ -14,7 +14,5 @@
     "symfony/event-dispatcher": "~2.3|~3.0",
     "symfony/console"         : "~2.3|~3.0"
   },
-  "bin"        : [
-    "bin/guzzle-request-worker.php"
-  ]
+  "bin"        : ["bin/guzzle-request-worker"]
 }
