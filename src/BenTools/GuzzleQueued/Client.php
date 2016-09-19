@@ -53,16 +53,30 @@ class Client implements ClientInterface {
     private $promises = [];
 
     /**
+     * @var string
+     */
+    private $requestsTube;
+
+    /**
+     * @var string
+     */
+    private $responsesTube;
+
+    /**
      * Client constructor.
      * @param ClientInterface $decoratedClient
      * @param Pheanstalk      $queue
      * @param int             $ttr
+     * @param string          $requestsTube
+     * @param string          $responsesTube
      */
-    public function __construct(ClientInterface $decoratedClient, Pheanstalk $queue, $ttr = Pheanstalk::DEFAULT_TTR) {
+    public function __construct(ClientInterface $decoratedClient, Pheanstalk $queue, $ttr = Pheanstalk::DEFAULT_TTR, $requestsTube = self::TUBE_REQUESTS, $responsesTube = self::TUBE_RESPONSES) {
         $this->decoratedClient = $decoratedClient;
         $this->queue           = $queue;
         $this->ttr             = $ttr;
-        $this->queue->watchOnly(self::TUBE_RESPONSES);
+        $this->requestsTube    = $requestsTube;
+        $this->responsesTube   = $responsesTube;
+        $this->queue->watchOnly($responsesTube);
     }
 
     /**
@@ -85,7 +99,7 @@ class Client implements ClientInterface {
             'response'  => null,
         ];
         $serializedBag = static::wrapRequestBag($requestBag);
-        $this->queue->putInTube(self::TUBE_REQUESTS, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
+        $this->queue->putInTube($this->requestsTube, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
         $this->promises[$requestId] = $promise = new Promise(function () use ($requestId, &$promise) {
             $this->wait();
         });
@@ -102,7 +116,7 @@ class Client implements ClientInterface {
             if ($promise->getState() !== PromiseInterface::PENDING)
                 continue;
 
-            $job = $this->queue->reserveFromTube(sprintf('%s.%s', self::TUBE_RESPONSES, $requestId), 1);
+            $job = $this->queue->reserveFromTube(sprintf('%s.%s', $this->responsesTube, $requestId), 1);
 
             if ($job instanceof Job) {
                 $this->processPromise($promise, $job);
@@ -131,7 +145,7 @@ class Client implements ClientInterface {
      * @param Job              $job
      */
     private function processPromise(PromiseInterface $promise, Job $job) {
-        $payload = $job->getData();
+        $payload    = $job->getData();
         $requestBag = static::unwrapRequestBag($payload);
         $this->queue->delete($job);
 
@@ -180,6 +194,38 @@ class Client implements ClientInterface {
      */
     public function getDecoratedClient() {
         return $this->decoratedClient;
+    }
+
+    /**
+     * @return string
+     */
+    public function getRequestsTube() {
+        return $this->requestsTube;
+    }
+
+    /**
+     * @param string $requestsTube
+     * @return $this - Provides Fluent Interface
+     */
+    public function setRequestsTube($requestsTube) {
+        $this->requestsTube = $requestsTube;
+        return $this;
+    }
+
+    /**
+     * @return string
+     */
+    public function getResponsesTube() {
+        return $this->responsesTube;
+    }
+
+    /**
+     * @param string $responsesTube
+     * @return $this - Provides Fluent Interface
+     */
+    public function setResponsesTube($responsesTube) {
+        $this->responsesTube = $responsesTube;
+        return $this;
     }
 
     /**

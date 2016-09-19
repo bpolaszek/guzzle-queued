@@ -28,16 +28,29 @@ class Worker {
     private $eventDispatcher;
 
     /**
+     * @var string
+     */
+    private $requestsTube;
+
+    /**
+     * @var string
+     */
+    private $responsesTube;
+
+    /**
      * Worker constructor.
      * @param ClientInterface               $client
      * @param Pheanstalk                    $queue
      * @param EventDispatcherInterface|null $eventDispatcher
+     * @param string                        $requestsTube
      */
-    public function __construct(ClientInterface $client, Pheanstalk $queue, EventDispatcherInterface $eventDispatcher = null) {
+    public function __construct(ClientInterface $client, Pheanstalk $queue, EventDispatcherInterface $eventDispatcher = null, $requestsTube = Client::TUBE_REQUESTS, $responsesTube = Client::TUBE_RESPONSES) {
         $this->client          = $client;
         $this->queue           = $queue;
         $this->eventDispatcher = $eventDispatcher ?? new EventDispatcher();
-        $this->queue->watchOnly(Client::TUBE_REQUESTS);
+        $this->requestsTube    = $requestsTube;
+        $this->responsesTube   = $responsesTube;
+        $this->queue->watchOnly($requestsTube);
     }
 
     public function loop() {
@@ -92,11 +105,11 @@ class Worker {
             $requestBag['exception'] = $e;
         }
 
-        $tube = sprintf('%s.%s', Client::TUBE_RESPONSES, $requestBag['requestId']);
+        $tube = sprintf('%s.%s', $this->responsesTube, $requestBag['requestId']);
         try {
             $this->queue->putInTube($tube, Client::wrapRequestBag($requestBag));
             $this->queue->delete($job);
-            $this->queue->useTube(Client::TUBE_RESPONSES);
+            $this->queue->useTube($this->responsesTube);
         }
         catch (\Exception $e) {
             $event = new JobEvent($job, $requestBag);
