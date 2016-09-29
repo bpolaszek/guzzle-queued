@@ -100,21 +100,20 @@ class Client implements ClientInterface {
         ];
         $serializedBag = static::wrapRequestBag($requestBag);
         $this->queue->putInTube($this->requestsTube, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
-        $this->promises[$requestId] = $promise = new Promise(function () use ($requestId, &$promise) {
-            $this->wait();
+        $this->promises[$requestId] = $promise = new Promise(function () use (&$promise, &$requestId) {
+            $this->wait($promise, $requestId);
         });
         return $promise;
     }
 
     /**
-     * Wait for all pending promises to complete.
+     * Wait for that promise to complete
+     * @param PromiseInterface $promise
+     * @param                  $requestId
      */
-    private function wait() {
+    private function wait(PromiseInterface $promise, $requestId) {
 
-        foreach ($this->promises AS $requestId => $promise) {
-
-            if ($promise->getState() !== PromiseInterface::PENDING)
-                continue;
+        if ($promise->getState() == PromiseInterface::PENDING) {
 
             $job = $this->queue->reserveFromTube(sprintf('%s.%s', $this->responsesTube, $requestId), 1);
 
@@ -123,8 +122,23 @@ class Client implements ClientInterface {
             }
         }
 
+    }
+
+    /**
+     * Wait for all pending promises to complete.
+     */
+    private function flush() {
+
+        foreach ($this->promises AS $requestId => $promise) {
+
+            if ($promise->getState() !== PromiseInterface::PENDING)
+                continue;
+
+            $this->wait($promise, $requestId);
+        }
+
         if ($this->hasPendingPromises()) {
-            $this->wait();
+            $this->flush();
         }
 
     }

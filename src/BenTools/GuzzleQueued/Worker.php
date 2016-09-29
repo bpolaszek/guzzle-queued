@@ -38,24 +38,48 @@ class Worker {
     private $responsesTube;
 
     /**
+     * @var int
+     */
+    private $maxRequests;
+
+    /**
+     * @var int
+     */
+    private $requestCount = 0;
+
+    /**
      * Worker constructor.
      * @param ClientInterface               $client
      * @param Pheanstalk                    $queue
      * @param EventDispatcherInterface|null $eventDispatcher
      * @param string                        $requestsTube
+     * @param string                        $responsesTube
+     * @param int                           $maxRequests
      */
-    public function __construct(ClientInterface $client, Pheanstalk $queue, EventDispatcherInterface $eventDispatcher = null, $requestsTube = Client::TUBE_REQUESTS, $responsesTube = Client::TUBE_RESPONSES) {
+    public function __construct(ClientInterface $client,
+                                Pheanstalk $queue,
+                                EventDispatcherInterface $eventDispatcher = null,
+                                $requestsTube = Client::TUBE_REQUESTS,
+                                $responsesTube = Client::TUBE_RESPONSES,
+                                $maxRequests = 0) {
         $this->client          = $client;
         $this->queue           = $queue;
         $this->eventDispatcher = $eventDispatcher ?? new EventDispatcher();
         $this->requestsTube    = $requestsTube;
         $this->responsesTube   = $responsesTube;
+        $this->maxRequests     = $maxRequests;
         $this->queue->watchOnly($requestsTube);
     }
 
     public function loop() {
         while ($job = $this->queue->reserve()) {
             $this->process($job);
+            if ($this->maxRequests > 0) {
+                $this->requestCount++;
+                if ($this->requestCount >= $this->maxRequests) {
+                    break;
+                }
+            }
         }
     }
 
