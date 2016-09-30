@@ -115,10 +115,14 @@ class Client implements ClientInterface {
 
         if ($promise->getState() == PromiseInterface::PENDING) {
 
-            $job = $this->queue->reserveFromTube(sprintf('%s.%s', $this->responsesTube, $requestId), 1);
+            $job = $this->queue->reserveFromTube(sprintf('%s.%s', $this->responsesTube, $requestId), $this->ttr);
 
             if ($job instanceof Job) {
                 $this->processPromise($promise, $job);
+            }
+
+            else {
+                $promise->reject(new \RuntimeException("The request could not be processed within the given time."));
             }
         }
 
