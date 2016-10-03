@@ -48,11 +48,6 @@ class Client implements ClientInterface {
     private $ttr;
 
     /**
-     * @var PromiseInterface[]
-     */
-    private $promises = [];
-
-    /**
      * @var string
      */
     private $requestsTube;
@@ -83,7 +78,7 @@ class Client implements ClientInterface {
      * @inheritDoc
      */
     public function send(RequestInterface $request, array $options = []) {
-        return $this->decoratedClient->send($request, $options);
+        return $this->sendAsync($request, $options)->wait();
     }
 
     /**
@@ -91,70 +86,31 @@ class Client implements ClientInterface {
      * @return Promise
      */
     public function sendAsync(RequestInterface $request, array $options = []) {
-        $requestId     = uniqid();
-        $requestBag    = [
-            'requestId' => $requestId,
-            'request'   => $request,
-            'options'   => $options,
-            'response'  => null,
-        ];
-        $serializedBag = static::wrapRequestBag($requestBag);
-        $this->queue->putInTube($this->requestsTube, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
-        $this->promises[$requestId] = $promise = new Promise(function () use (&$promise, &$requestId) {
-            $this->wait($promise, $requestId);
-        });
-        return $promise;
-    }
 
-    /**
-     * Wait for that promise to complete
-     * @param PromiseInterface $promise
-     * @param                  $requestId
-     */
-    private function wait(PromiseInterface $promise, $requestId) {
+        $promise = new Promise(function () use ($request, $options, &$promise) {
 
-        if ($promise->getState() == PromiseInterface::PENDING) {
-
+            $requestId     = uniqid();
+            $requestBag    = [
+                'requestId' => $requestId,
+                'request'   => $request,
+                'options'   => $options,
+                'response'  => null,
+            ];
+            $serializedBag = static::wrapRequestBag($requestBag);
+            $this->queue->putInTube($this->requestsTube, $serializedBag, 0, Pheanstalk::DEFAULT_DELAY, (int) $this->ttr);
             $job = $this->queue->reserveFromTube(sprintf('%s.%s', $this->responsesTube, $requestId), $this->ttr);
 
             if ($job instanceof Job) {
-                $this->processPromise($promise, $job);
+                return $this->processPromise($promise, $job);
             }
 
             else {
                 $promise->reject(new \RuntimeException("The request could not be processed within the given time."));
             }
-        }
 
-    }
+        });
 
-    /**
-     * Wait for all pending promises to complete.
-     */
-    private function flush() {
-
-        foreach ($this->promises AS $requestId => $promise) {
-
-            if ($promise->getState() !== PromiseInterface::PENDING)
-                continue;
-
-            $this->wait($promise, $requestId);
-        }
-
-        if ($this->hasPendingPromises()) {
-            $this->flush();
-        }
-
-    }
-
-    /**
-     * Check if some pending promises remain in the queue.
-     * @return bool
-     */
-    private function hasPendingPromises() {
-        return count(array_filter($this->promises, function (PromiseInterface $promise) {
-            return $promise->getState() === PromiseInterface::PENDING;
-        })) > 0;
+        return $promise;
     }
 
     /**
@@ -170,7 +126,7 @@ class Client implements ClientInterface {
         switch (true) {
             case !empty($requestBag['response']) && $requestBag['response']->getStatusCode() < 400:
                 $promise->resolve($requestBag['response']);
-                break;
+                return $requestBag['response'];
 
             case !empty($requestBag['response']):
                 $promise->reject(RequestException::create($requestBag['request'], $requestBag['response']));
